@@ -1,0 +1,10 @@
+* text=auto
+*.blade.php diff=html
+*.css diff=css
+*.html diff=html
+*.js diff=javascript
+*.json diff=json
+*.md diff=markdown
+*.php diff=php
+*.scss diff=css
+*.vue diff=html
