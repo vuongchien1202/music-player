@@ -1,70 +1,11 @@
 import './bootstrap';
 import '../css/app.css';
 
-const samplePlaylists = () => [
-    {
-        id: generateId('sunset'),
-        name: 'Sunset Vibes',
-        accent: '#fb7185',
-        songs: [
-            {
-                id: generateId('aurora'),
-                title: 'Aurora Bloom',
-                artist: 'Eira Lin',
-                album: 'Chromatic Dreams',
-                cover: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=400&q=80',
-                audio: 'https://samplelib.com/lib/preview/mp3/sample-6s.mp3',
-                duration: 6,
-                lyrics: [
-                    { time: 0, text: 'Bình minh nhẹ lên trên đôi vai em.' },
-                    { time: 1.5, text: 'Những nốt nhạc chạm vào tầng mây hồng.' },
-                    { time: 3, text: 'Trái tim rung lên nhịp đập rộn ràng.' },
-                    { time: 4.5, text: 'Ta cùng hoà trong ánh sáng mơ màng.' },
-                ],
-            },
-            {
-                id: generateId('neon'),
-                title: 'Neon Skyline',
-                artist: 'Nova & The Waves',
-                album: 'Night Pulse',
-                cover: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=400&q=80',
-                audio: 'https://samplelib.com/lib/preview/mp3/sample-9s.mp3',
-                duration: 9,
-                lyrics: [
-                    { time: 0, text: 'Thành phố sáng rực lên trong đêm dài.' },
-                    { time: 2.4, text: 'Dòng người cuốn ta về phía xa xôi.' },
-                    { time: 4.5, text: 'Những tia sáng đan vào nhau rực rỡ.' },
-                    { time: 6.8, text: 'Trọn vẹn phút giây đắm chìm mê say.' },
-                ],
-            },
-        ],
-    },
-    {
-        id: generateId('focus'),
-        name: 'Deep Focus',
-        accent: '#f97316',
-        songs: [
-            {
-                id: generateId('drift'),
-                title: 'Midnight Drift',
-                artist: 'Lumen',
-                album: 'Parallel Lines',
-                cover: 'https://images.unsplash.com/photo-1460661419201-fd4cecdf8a8b?auto=format&fit=crop&w=400&q=80',
-                audio: 'https://samplelib.com/lib/preview/mp3/sample-12s.mp3',
-                duration: 12,
-                lyrics: [
-                    { time: 0, text: 'Giữa đêm vắng em nghe tim dịu êm.' },
-                    { time: 3.5, text: 'Lướt trên sóng âm sâu trong ý nghĩ.' },
-                    { time: 7.2, text: 'Ngân vang tiếng ca khẽ lay giấc ngủ.' },
-                    { time: 10.4, text: 'Thả hồn trôi theo dòng chảy vô hình.' },
-                ],
-            },
-        ],
-    },
-];
+const API_BASE = '/api';
+const DEFAULT_COVER = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=200&q=80';
 
 const state = {
-    playlists: samplePlaylists(),
+    playlists: [],
     currentPlaylistId: null,
     currentSongId: null,
     isPlaying: false,
@@ -74,15 +15,8 @@ const state = {
 
 const elements = {};
 
-function generateId(prefix = 'id') {
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-        return `${prefix}-${crypto.randomUUID()}`;
-    }
-    return `${prefix}-${Math.random().toString(16).slice(2)}-${Date.now()}`;
-}
-
 function formatTime(seconds) {
-    if (!Number.isFinite(seconds)) {
+    if (!Number.isFinite(seconds) || seconds < 0) {
         return '00:00';
     }
     const minutes = Math.floor(seconds / 60);
@@ -130,8 +64,61 @@ function lyricsToText(lyrics = []) {
         .join('\n');
 }
 
+function normalizeSong(rawSong) {
+    if (!rawSong) {
+        return null;
+    }
+
+    const songId = Number(rawSong.id);
+    const playlistId = Number(rawSong.playlistId ?? rawSong.playlist_id);
+
+    const lyrics = Array.isArray(rawSong.lyrics)
+        ? rawSong.lyrics
+              .map((line) => ({
+                  time: Number(line.time),
+                  text: typeof line.text === 'string' ? line.text.trim() : '',
+              }))
+              .filter((line) => !Number.isNaN(line.time) && line.text)
+              .sort((a, b) => a.time - b.time)
+        : [];
+
+    return {
+        id: Number.isNaN(songId) ? rawSong.id : songId,
+        playlistId: Number.isNaN(playlistId) ? null : playlistId,
+        title: rawSong.title ?? '',
+        artist: rawSong.artist ?? '',
+        album: rawSong.album ?? '',
+        cover: rawSong.cover ?? rawSong.cover_url ?? '',
+        audio: rawSong.audio ?? rawSong.audio_url ?? '',
+        duration: Number.isFinite(rawSong.duration) ? Number(rawSong.duration) : null,
+        lyrics,
+    };
+}
+
+function normalizePlaylist(rawPlaylist) {
+    if (!rawPlaylist) {
+        return null;
+    }
+    const playlistId = Number(rawPlaylist.id);
+    return {
+        id: Number.isNaN(playlistId) ? rawPlaylist.id : playlistId,
+        name: rawPlaylist.name ?? 'Danh sách phát',
+        accent: rawPlaylist.accent ?? '#fb7185',
+        songs: Array.isArray(rawPlaylist.songs)
+            ? rawPlaylist.songs.map(normalizeSong).filter(Boolean)
+            : [],
+    };
+}
+
+function extractData(payload) {
+    if (payload && typeof payload === 'object' && Object.prototype.hasOwnProperty.call(payload, 'data')) {
+        return payload.data;
+    }
+    return payload;
+}
+
 function getCurrentPlaylist() {
-    return state.playlists.find((playlist) => playlist.id === state.currentPlaylistId) ?? state.playlists[0] ?? null;
+    return state.playlists.find((playlist) => playlist.id === state.currentPlaylistId) ?? null;
 }
 
 function getCurrentSong() {
@@ -139,11 +126,12 @@ function getCurrentSong() {
     if (!playlist) {
         return null;
     }
-    return playlist.songs.find((song) => song.id === state.currentSongId) ?? playlist.songs[0] ?? null;
+    return playlist.songs.find((song) => song.id === state.currentSongId) ?? null;
 }
 
 function setCurrentPlaylist(playlistId, { keepSong = false } = {}) {
-    state.currentPlaylistId = playlistId;
+    const id = playlistId === null || playlistId === undefined ? null : Number(playlistId);
+    state.currentPlaylistId = Number.isNaN(id) ? null : id;
     const playlist = getCurrentPlaylist();
     if (!playlist) {
         state.currentSongId = null;
@@ -156,36 +144,83 @@ function setCurrentPlaylist(playlistId, { keepSong = false } = {}) {
 }
 
 function setCurrentSong(songId) {
+    const id = songId === null || songId === undefined ? null : Number(songId);
+    if (Number.isNaN(id)) {
+        state.currentSongId = null;
+        return;
+    }
     const playlist = getCurrentPlaylist();
     if (!playlist) {
         state.currentSongId = null;
         return;
     }
-    const songExists = playlist.songs.some((song) => song.id === songId);
-    state.currentSongId = songExists ? songId : playlist.songs[0]?.id ?? null;
+    const songExists = playlist.songs.some((song) => song.id === id);
+    state.currentSongId = songExists ? id : playlist.songs[0]?.id ?? null;
+}
+
+function setLibrary(playlists = []) {
+    const normalized = playlists.map(normalizePlaylist).filter(Boolean);
+    state.playlists = normalized;
+    if (!normalized.some((playlist) => playlist.id === state.currentPlaylistId)) {
+        state.currentPlaylistId = normalized[0]?.id ?? null;
+    }
+    const playlist = getCurrentPlaylist();
+    if (!playlist || !playlist.songs.some((song) => song.id === state.currentSongId)) {
+        state.currentSongId = playlist?.songs[0]?.id ?? null;
+    }
+    updatePlaylistSelect();
+    render();
 }
 
 function updatePlaylistSelect() {
     if (!elements.playlistSelect) return;
     elements.playlistSelect.innerHTML = '';
+
+    if (state.playlists.length === 0) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'Chưa có danh sách phát';
+        option.disabled = true;
+        option.selected = true;
+        elements.playlistSelect.appendChild(option);
+        if (elements.songSubmit) {
+            elements.songSubmit.disabled = true;
+        }
+        return;
+    }
+
     state.playlists.forEach((playlist) => {
         const option = document.createElement('option');
-        option.value = playlist.id;
+        option.value = String(playlist.id);
         option.textContent = playlist.name;
         elements.playlistSelect.appendChild(option);
     });
-    if (state.currentPlaylistId) {
-        elements.playlistSelect.value = state.currentPlaylistId;
+
+    if (state.currentPlaylistId !== null) {
+        elements.playlistSelect.value = String(state.currentPlaylistId);
+    }
+
+    if (elements.songSubmit) {
+        elements.songSubmit.disabled = false;
     }
 }
 
 function renderPlaylists() {
     if (!elements.playlistList) return;
     elements.playlistList.innerHTML = '';
+
+    if (state.playlists.length === 0) {
+        const emptyState = document.createElement('li');
+        emptyState.className = 'rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-center text-sm text-zinc-300';
+        emptyState.textContent = 'Chưa có danh sách phát. Hãy tạo một danh sách mới bên dưới.';
+        elements.playlistList.appendChild(emptyState);
+        return;
+    }
+
     state.playlists.forEach((playlist) => {
         const item = document.createElement('li');
         item.className = 'playlist-item';
-        item.dataset.id = playlist.id;
+        item.dataset.id = String(playlist.id);
         if (playlist.id === state.currentPlaylistId) {
             item.classList.add('playlist-item--active');
         }
@@ -224,10 +259,18 @@ function renderSongs() {
     elements.songList.innerHTML = '';
     elements.songCount.textContent = playlist ? `${playlist.songs.length} bài` : '0 bài';
 
-    if (!playlist || playlist.songs.length === 0) {
+    if (!playlist) {
         const emptyState = document.createElement('div');
         emptyState.className = 'rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-center text-sm text-zinc-300';
-        emptyState.innerHTML = 'Chưa có bài hát. Hãy thêm một bài mới bên dưới!';
+        emptyState.textContent = 'Chưa có danh sách phát. Hãy tạo một danh sách mới để bắt đầu.';
+        elements.songList.appendChild(emptyState);
+        return;
+    }
+
+    if (playlist.songs.length === 0) {
+        const emptyState = document.createElement('div');
+        emptyState.className = 'rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-center text-sm text-zinc-300';
+        emptyState.textContent = 'Chưa có bài hát. Hãy thêm một bài mới bên dưới!';
         elements.songList.appendChild(emptyState);
         return;
     }
@@ -235,14 +278,14 @@ function renderSongs() {
     playlist.songs.forEach((song) => {
         const item = document.createElement('li');
         item.className = 'song-tile';
-        item.dataset.id = song.id;
+        item.dataset.id = String(song.id);
         if (song.id === state.currentSongId) {
             item.classList.add('ring-2', 'ring-rose-400/60', 'bg-white/15');
         }
 
         const cover = document.createElement('div');
         cover.className = 'h-12 w-12 overflow-hidden rounded-xl shadow-lg shadow-black/40';
-        cover.innerHTML = `<img src="${song.cover ?? 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=200&q=80'}" alt="${song.title}" class="h-full w-full object-cover" />`;
+        cover.innerHTML = `<img src="${song.cover || DEFAULT_COVER}" alt="${song.title}" class="h-full w-full object-cover" />`;
 
         const infoWrapper = document.createElement('div');
         infoWrapper.className = 'flex flex-col';
@@ -301,16 +344,16 @@ function renderPlayer() {
         elements.playerTitle.textContent = '--';
         elements.playerArtist.textContent = '--';
         elements.playerAlbum.textContent = '';
-        elements.playerCover.src = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=200&q=80';
+        elements.playerCover.src = DEFAULT_COVER;
         elements.currentTime.textContent = '00:00';
         elements.totalDuration.textContent = '00:00';
         elements.progress.value = 0;
         return;
     }
 
-    if (audio.dataset.songId !== song.id) {
+    if (audio.dataset.songId !== String(song.id)) {
         audio.src = song.audio;
-        audio.dataset.songId = song.id;
+        audio.dataset.songId = String(song.id);
         audio.load();
         if (state.isPlaying) {
             audio.play().catch(() => {
@@ -323,7 +366,7 @@ function renderPlayer() {
     elements.playerTitle.textContent = song.title;
     elements.playerArtist.textContent = song.artist;
     elements.playerAlbum.textContent = song.album ?? '';
-    elements.playerCover.src = song.cover ?? 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=200&q=80';
+    elements.playerCover.src = song.cover || DEFAULT_COVER;
     elements.totalDuration.textContent = formatTime(song.duration ?? audio.duration ?? 0);
 }
 
@@ -387,23 +430,26 @@ function playCurrent() {
     const audio = elements.audio;
     if (!audio) return;
     const song = getCurrentSong();
-    if (!song) return;
+    if (!song || !song.audio) return;
 
-    if (audio.dataset.songId !== song.id) {
+    if (audio.dataset.songId !== String(song.id)) {
         audio.src = song.audio;
-        audio.dataset.songId = song.id;
+        audio.dataset.songId = String(song.id);
     }
 
-    audio.play().then(() => {
-        state.isPlaying = true;
-        updatePlayButton();
-    }).catch(() => {
-        state.isPlaying = false;
-        updatePlayButton();
-    });
+    audio.play()
+        .then(() => {
+            state.isPlaying = true;
+            updatePlayButton();
+        })
+        .catch(() => {
+            state.isPlaying = false;
+            updatePlayButton();
+        });
 }
 
 function pauseCurrent() {
+    if (!elements.audio) return;
     elements.audio.pause();
     state.isPlaying = false;
     updatePlayButton();
@@ -443,17 +489,90 @@ function playPrevious() {
     playCurrent();
 }
 
-function removeSong(playlistId, songId) {
-    const playlist = state.playlists.find((item) => item.id === playlistId);
-    if (!playlist) return;
-    playlist.songs = playlist.songs.filter((song) => song.id !== songId);
-    if (playlist.id === state.currentPlaylistId && songId === state.currentSongId) {
+async function apiRequest(path, { method = 'GET', body, headers = {} } = {}) {
+    const config = {
+        method,
+        headers: {
+            Accept: 'application/json',
+            ...headers,
+        },
+        credentials: 'same-origin',
+    };
+
+    if (body !== undefined) {
+        config.body = JSON.stringify(body);
+        config.headers['Content-Type'] = 'application/json';
+    }
+
+    const response = await fetch(`${API_BASE}${path}`, config);
+    if (response.status === 204) {
+        return null;
+    }
+
+    let payload = null;
+    const contentType = response.headers.get('Content-Type') ?? '';
+    if (contentType.includes('application/json')) {
+        payload = await response.json();
+    } else {
+        payload = await response.text();
+    }
+
+    if (!response.ok) {
+        let message = 'Yêu cầu không thành công.';
+        if (payload && typeof payload === 'object') {
+            if (typeof payload.message === 'string') {
+                message = payload.message;
+            } else if (payload.errors) {
+                const firstError = Object.values(payload.errors)[0];
+                if (Array.isArray(firstError) && firstError.length > 0) {
+                    message = firstError[0];
+                }
+            }
+        } else if (typeof payload === 'string' && payload.trim()) {
+            message = payload;
+        }
+        throw new Error(message);
+    }
+
+    return payload;
+}
+
+async function loadLibrary() {
+    try {
+        const payload = await apiRequest('/library');
+        const playlists = extractData(payload) ?? [];
+        setLibrary(Array.isArray(playlists) ? playlists : []);
+    } catch (error) {
+        console.error(error);
+        if (elements.karaokePanel) {
+            elements.karaokePanel.innerHTML = `<p class="text-sm text-rose-300">Không thể tải thư viện nhạc: ${error.message}</p>`;
+        }
+    }
+}
+
+async function addPlaylist(name) {
+    try {
+        const payload = await apiRequest('/playlists', {
+            method: 'POST',
+            body: { name },
+        });
+        const playlistData = extractData(payload);
+        const playlist = normalizePlaylist({ ...playlistData, songs: playlistData?.songs ?? [] });
+        state.playlists.push(playlist);
+        state.currentPlaylistId = playlist.id;
         state.currentSongId = playlist.songs[0]?.id ?? null;
+        updatePlaylistSelect();
+        render();
+    } catch (error) {
+        console.error(error);
+        alert(`Không thể tạo danh sách phát: ${error.message}`);
     }
-    if (state.editingSong && state.editingSong.songId === songId) {
-        resetSongForm();
-    }
-    render();
+}
+
+function findSong(playlistId, songId) {
+    const playlist = state.playlists.find((item) => item.id === playlistId);
+    if (!playlist) return null;
+    return playlist.songs.find((item) => item.id === songId) ?? null;
 }
 
 function beginEditSong(song, playlistId) {
@@ -463,7 +582,7 @@ function beginEditSong(song, playlistId) {
     elements.songForm.album.value = song.album ?? '';
     elements.songForm.cover.value = song.cover ?? '';
     elements.songForm.audio.value = song.audio;
-    elements.playlistSelect.value = playlistId;
+    elements.playlistSelect.value = String(playlistId);
     elements.songForm.lyrics.value = lyricsToText(song.lyrics ?? []);
     elements.formMode.textContent = 'Chỉnh sửa bài hát';
 }
@@ -473,75 +592,118 @@ function resetSongForm() {
     elements.formMode.textContent = 'Thêm bài hát';
     state.editingSong = null;
     if (state.currentPlaylistId && elements.playlistSelect) {
-        elements.playlistSelect.value = state.currentPlaylistId;
+        elements.playlistSelect.value = String(state.currentPlaylistId);
     }
 }
 
-function addPlaylist(name) {
-    const newPlaylist = {
-        id: generateId('playlist'),
-        name,
-        accent: '#f43f5e',
-        songs: [],
+async function upsertSong({ playlistId, song }) {
+    const payload = {
+        playlist_id: playlistId,
+        title: song.title,
+        artist: song.artist,
+        album: song.album || null,
+        cover: song.cover || null,
+        audio: song.audio,
+        lyrics: song.lyrics ?? [],
+        duration: song.duration ?? null,
     };
-    state.playlists.push(newPlaylist);
-    setCurrentPlaylist(newPlaylist.id);
-    updatePlaylistSelect();
-    renderPlaylists();
-    renderSongs();
-    renderPlayer();
-    renderKaraoke();
-}
 
-function upsertSong(data) {
-    const playlist = state.playlists.find((item) => item.id === data.playlistId);
-    if (!playlist) return;
-
-    if (state.editingSong) {
-        const currentPlaylist = state.playlists.find((item) => item.id === state.editingSong.playlistId);
-        if (currentPlaylist) {
-            const targetSong = currentPlaylist.songs.find((song) => song.id === state.editingSong.songId);
-            if (targetSong) {
-                Object.assign(targetSong, data.song);
-                if (currentPlaylist.id !== data.playlistId) {
-                    currentPlaylist.songs = currentPlaylist.songs.filter((song) => song.id !== state.editingSong.songId);
-                    playlist.songs.push(targetSong);
-                    if (state.currentPlaylistId === currentPlaylist.id && state.currentSongId === targetSong.id) {
-                        state.currentPlaylistId = playlist.id;
-                    }
-                }
-                if (state.currentSongId === targetSong.id) {
-                    renderPlayer();
-                    renderKaraoke();
+    try {
+        if (state.editingSong) {
+            const response = await apiRequest(`/songs/${state.editingSong.songId}`, {
+                method: 'PUT',
+                body: payload,
+            });
+            const updatedSong = normalizeSong(extractData(response));
+            const previousPlaylistId = state.editingSong.playlistId;
+            if (previousPlaylistId !== playlistId) {
+                const previousPlaylist = state.playlists.find((item) => item.id === previousPlaylistId);
+                if (previousPlaylist) {
+                    previousPlaylist.songs = previousPlaylist.songs.filter((item) => item.id !== updatedSong.id);
                 }
             }
+            const targetPlaylist = state.playlists.find((item) => item.id === playlistId);
+            if (targetPlaylist) {
+                const index = targetPlaylist.songs.findIndex((item) => item.id === updatedSong.id);
+                if (index >= 0) {
+                    targetPlaylist.songs[index] = updatedSong;
+                } else {
+                    targetPlaylist.songs.push(updatedSong);
+                }
+            }
+            state.currentPlaylistId = playlistId;
+            state.currentSongId = updatedSong.id;
+        } else {
+            const response = await apiRequest('/songs', {
+                method: 'POST',
+                body: payload,
+            });
+            const createdSong = normalizeSong(extractData(response));
+            const playlist = state.playlists.find((item) => item.id === playlistId);
+            if (playlist) {
+                playlist.songs.push(createdSong);
+                state.currentPlaylistId = playlist.id;
+                state.currentSongId = createdSong.id;
+            }
         }
-    } else {
-        const newSong = { id: generateId('song'), ...data.song };
-        playlist.songs.push(newSong);
-        state.currentSongId = newSong.id;
-        state.currentPlaylistId = playlist.id;
+
+        render();
+        resetSongForm();
+    } catch (error) {
+        console.error(error);
+        alert(`Không thể lưu bài hát: ${error.message}`);
+    }
+}
+
+async function removeSong(playlistId, songId) {
+    const confirmation = window.confirm('Bạn có chắc chắn muốn xoá bài hát này?');
+    if (!confirmation) {
+        return;
     }
 
-    render();
-    resetSongForm();
+    try {
+        await apiRequest(`/songs/${songId}`, { method: 'DELETE' });
+        const playlist = state.playlists.find((item) => item.id === playlistId);
+        if (playlist) {
+            playlist.songs = playlist.songs.filter((song) => song.id !== songId);
+        }
+        if (state.currentPlaylistId === playlistId && state.currentSongId === songId) {
+            const currentPlaylist = getCurrentPlaylist();
+            state.currentSongId = currentPlaylist?.songs[0]?.id ?? null;
+        }
+        if (state.editingSong && state.editingSong.songId === songId) {
+            resetSongForm();
+        }
+        render();
+    } catch (error) {
+        console.error(error);
+        alert(`Không thể xoá bài hát: ${error.message}`);
+    }
 }
 
 function handleSongFormSubmit(event) {
     event.preventDefault();
     const formData = new FormData(elements.songForm);
-    const title = formData.get('title').trim();
-    const artist = formData.get('artist').trim();
-    const album = formData.get('album').trim();
-    const cover = formData.get('cover').trim();
-    const audio = formData.get('audio').trim();
-    const playlistId = formData.get('playlist');
-    const lyricsText = formData.get('lyrics');
+    const title = formData.get('title')?.toString().trim();
+    const artist = formData.get('artist')?.toString().trim();
+    const album = formData.get('album')?.toString().trim();
+    const cover = formData.get('cover')?.toString().trim();
+    const audio = formData.get('audio')?.toString().trim();
+    const playlistValue = formData.get('playlist');
+    const playlistId = playlistValue !== null ? Number(playlistValue) : NaN;
+    const lyricsText = formData.get('lyrics')?.toString() ?? '';
 
     if (!title || !artist || !audio) {
         alert('Vui lòng nhập đầy đủ tên bài hát, nghệ sĩ và nguồn nhạc.');
         return;
     }
+
+    if (Number.isNaN(playlistId)) {
+        alert('Vui lòng chọn danh sách phát.');
+        return;
+    }
+
+    const existingSong = state.editingSong ? findSong(state.editingSong.playlistId, state.editingSong.songId) : null;
 
     upsertSong({
         playlistId,
@@ -549,9 +711,10 @@ function handleSongFormSubmit(event) {
             title,
             artist,
             album,
-            cover: cover || undefined,
+            cover: cover || null,
             audio,
-            lyrics: parseLyrics(lyricsText ?? ''),
+            lyrics: parseLyrics(lyricsText),
+            duration: existingSong?.duration ?? null,
         },
     });
 }
@@ -559,7 +722,7 @@ function handleSongFormSubmit(event) {
 function handlePlaylistFormSubmit(event) {
     event.preventDefault();
     const formData = new FormData(elements.playlistForm);
-    const name = formData.get('playlist').toString().trim();
+    const name = formData.get('playlist')?.toString().trim();
     if (!name) return;
     addPlaylist(name);
     elements.playlistForm.reset();
@@ -594,19 +757,17 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.formMode = document.querySelector('[data-form-mode]');
     elements.cancelEdit = document.querySelector('[data-cancel-edit]');
     elements.playlistForm = document.querySelector('[data-playlist-form]');
-
-    state.currentPlaylistId = state.playlists[0]?.id ?? null;
-    state.currentSongId = getCurrentSong()?.id ?? null;
+    elements.songSubmit = elements.songForm?.querySelector('button[type="submit"]');
 
     updatePlaylistSelect();
     render();
     updatePlayButton();
 
-    elements.playButton.addEventListener('click', playPause);
-    elements.prevButton.addEventListener('click', playPrevious);
-    elements.nextButton.addEventListener('click', playNext);
+    elements.playButton?.addEventListener('click', playPause);
+    elements.prevButton?.addEventListener('click', playPrevious);
+    elements.nextButton?.addEventListener('click', playNext);
 
-    elements.audio.addEventListener('timeupdate', () => {
+    elements.audio?.addEventListener('timeupdate', () => {
         const { currentTime, duration } = elements.audio;
         elements.currentTime.textContent = formatTime(currentTime);
         const total = getCurrentSong()?.duration ?? duration;
@@ -617,30 +778,31 @@ document.addEventListener('DOMContentLoaded', () => {
         updateKaraoke(currentTime);
     });
 
-    elements.audio.addEventListener('ended', () => {
+    elements.audio?.addEventListener('ended', () => {
         playNext();
     });
 
-    elements.audio.addEventListener('play', () => {
+    elements.audio?.addEventListener('play', () => {
         state.isPlaying = true;
         updatePlayButton();
     });
 
-    elements.audio.addEventListener('pause', () => {
+    elements.audio?.addEventListener('pause', () => {
         state.isPlaying = false;
         updatePlayButton();
     });
 
-    elements.audio.addEventListener('loadedmetadata', () => {
+    elements.audio?.addEventListener('loadedmetadata', () => {
         const duration = elements.audio.duration;
         const song = getCurrentSong();
-        if (song) {
+        if (song && Number.isFinite(duration)) {
             song.duration = duration;
+            renderSongs();
         }
         elements.totalDuration.textContent = formatTime(duration);
     });
 
-    elements.progress.addEventListener('input', (event) => {
+    elements.progress?.addEventListener('input', (event) => {
         const { duration } = elements.audio;
         if (!Number.isFinite(duration) || duration <= 0) {
             return;
@@ -649,14 +811,16 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.audio.currentTime = (value / 100) * duration;
     });
 
-    elements.songForm.addEventListener('submit', handleSongFormSubmit);
-    elements.songForm.addEventListener('reset', () => {
+    elements.songForm?.addEventListener('submit', handleSongFormSubmit);
+    elements.songForm?.addEventListener('reset', () => {
         setTimeout(() => resetSongForm(), 0);
     });
-    elements.cancelEdit.addEventListener('click', (event) => {
+    elements.cancelEdit?.addEventListener('click', (event) => {
         event.preventDefault();
         resetSongForm();
     });
 
-    elements.playlistForm.addEventListener('submit', handlePlaylistFormSubmit);
+    elements.playlistForm?.addEventListener('submit', handlePlaylistFormSubmit);
+
+    loadLibrary();
 });
