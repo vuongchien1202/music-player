@@ -719,7 +719,13 @@ function renderPlayer() {
 function renderKaraoke() {
     const container = elements.karaokePanel;
     const song = getCurrentSong();
+
     state.karaokeIndex = -1;
+
+    if (!container) {
+        return;
+    }
+
     container.innerHTML = '';
 
     if (!song || !song.lyrics || song.lyrics.length === 0) {
@@ -738,8 +744,10 @@ function renderKaraoke() {
 }
 
 function updateKaraoke(currentTime) {
+    const container = elements.karaokePanel;
     const song = getCurrentSong();
-    if (!song || !song.lyrics || song.lyrics.length === 0) {
+
+    if (!container || !song || !song.lyrics || song.lyrics.length === 0) {
         return;
     }
 
@@ -758,7 +766,7 @@ function updateKaraoke(currentTime) {
 
     state.karaokeIndex = activeIndex;
 
-    elements.karaokePanel.querySelectorAll('.lyric-line').forEach((element, index) => {
+    container.querySelectorAll('.lyric-line').forEach((element, index) => {
         if (index === activeIndex) {
             element.classList.add('lyric-line--active');
             element.scrollIntoView({ behavior: 'smooth', block: 'center' });
