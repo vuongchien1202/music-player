@@ -47,7 +47,7 @@
                 <input type="range" min="0" max="100" value="0" data-progress class="progress-slider" aria-label="Tiến độ bài hát" />
             </div>
 
-            <audio id="player-audio" class="hidden" preload="metadata" crossorigin="anonymous"></audio>
+            <audio id="player-audio" class="hidden" preload="metadata"></audio>
 
             <div class="mt-6 grid gap-4 lg:grid-cols-2">
                 <div class="flex flex-col gap-4 rounded-2xl border border-white/5 bg-white/5 p-4">

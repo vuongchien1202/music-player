@@ -269,7 +269,7 @@ function ensureAudioEngine() {
 
     if (!audioEngine.source) {
         try {
-            if (!audio.crossOrigin) {
+            if (!crossOrigin && !audio.crossOrigin) {
                 audio.crossOrigin = 'anonymous';
             }
             audioEngine.source = audioEngine.context.createMediaElementSource(audio);
