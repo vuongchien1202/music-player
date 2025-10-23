@@ -25,6 +25,8 @@ class SongResource extends JsonResource
             ->values()
             ->all();
 
+        $audioOriginal = $this->audio_url;
+
         return [
             'id' => $this->id,
             'playlist_id' => $this->playlist_id,
@@ -32,9 +34,56 @@ class SongResource extends JsonResource
             'artist' => $this->artist,
             'album' => $this->album,
             'cover' => $this->cover_url,
-            'audio' => $this->audio_url,
+            'audio' => $this->makePlayableAudioUrl($audioOriginal, $request),
+            'audio_original' => $audioOriginal,
             'duration' => $this->duration,
             'lyrics' => $lyrics,
         ];
+    }
+
+    protected function makePlayableAudioUrl(?string $audioUrl, Request $request): ?string
+    {
+        if (!$audioUrl) {
+            return null;
+        }
+
+        if (!$this->shouldProxyAudio($audioUrl, $request)) {
+            return $audioUrl;
+        }
+
+        return route('audio.proxy', ['url' => $audioUrl], false);
+    }
+
+    protected function shouldProxyAudio(string $audioUrl, Request $request): bool
+    {
+        if (!filter_var($audioUrl, FILTER_VALIDATE_URL)) {
+            return false;
+        }
+
+        $target = parse_url($audioUrl);
+        if (!$target || empty($target['host'])) {
+            return false;
+        }
+
+        $targetHost = strtolower($target['host']);
+        $targetScheme = strtolower($target['scheme'] ?? '');
+
+        $requestHost = strtolower($request->getHost());
+        $requestScheme = strtolower($request->getScheme());
+
+        if ($targetHost === $requestHost && ($targetScheme === '' || $targetScheme === $requestScheme)) {
+            return false;
+        }
+
+        $appUrl = config('app.url');
+        if ($appUrl) {
+            $appHost = strtolower((string) parse_url($appUrl, PHP_URL_HOST));
+            $appScheme = strtolower((string) parse_url($appUrl, PHP_URL_SCHEME));
+            if ($targetHost === $appHost && ($targetScheme === '' || $targetScheme === $appScheme)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
