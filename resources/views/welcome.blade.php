@@ -49,6 +49,68 @@
 
             <audio id="player-audio" class="hidden" preload="metadata"></audio>
 
+            <div class="mt-6 grid gap-4 lg:grid-cols-2">
+                <div class="flex flex-col gap-4 rounded-2xl border border-white/5 bg-white/5 p-4">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <p class="text-[0.65rem] uppercase tracking-[0.3em] text-rose-300">Chế độ phát</p>
+                            <p class="text-sm text-zinc-200" data-playback-mode-label>Phát tuần tự</p>
+                        </div>
+                        <button type="button" class="mode-toggle" data-playback-mode>
+                            <span class="material-symbol text-base" data-playback-mode-icon>▶️</span>
+                            <span class="text-[0.65rem] uppercase tracking-[0.3em]">Đổi chế độ</span>
+                        </button>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="flex flex-col gap-2">
+                            <span class="text-[0.65rem] uppercase tracking-[0.3em] text-zinc-400">Tốc độ</span>
+                            <div class="flex items-center gap-3">
+                                <input type="range" min="0.5" max="1.5" step="0.05" value="1" class="progress-slider flex-1" data-speed-control aria-label="Điều chỉnh tốc độ phát" />
+                                <span class="value-badge" data-speed-value>1.00x</span>
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            <span class="text-[0.65rem] uppercase tracking-[0.3em] text-zinc-400">Pitch</span>
+                            <div class="flex items-center gap-3">
+                                <input type="range" min="-6" max="6" step="1" value="0" class="progress-slider flex-1" data-pitch-control aria-label="Điều chỉnh cao độ" />
+                                <span class="value-badge" data-pitch-value>0 st</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex flex-col gap-4 rounded-2xl border border-white/5 bg-white/5 p-4">
+                    <div class="flex items-center justify-between gap-3">
+                        <div>
+                            <p class="text-[0.65rem] uppercase tracking-[0.3em] text-rose-300">Equalizer</p>
+                            <p class="text-sm text-zinc-200">Tuỳ chỉnh âm sắc</p>
+                        </div>
+                        <select data-eq-preset class="select-field">
+                            <option value="flat">Mặc định</option>
+                            <option value="pop">Pop</option>
+                            <option value="rock">Rock</option>
+                            <option value="jazz">Jazz</option>
+                            <option value="custom">Tuỳ chỉnh</option>
+                        </select>
+                    </div>
+                    <div class="space-y-4">
+                        <div class="flex flex-col gap-2">
+                            <span class="text-[0.65rem] uppercase tracking-[0.3em] text-zinc-400">Bass</span>
+                            <div class="flex items-center gap-3">
+                                <input type="range" min="-12" max="12" step="1" value="0" class="progress-slider flex-1" data-eq-bass aria-label="Điều chỉnh bass" />
+                                <span class="value-badge" data-eq-bass-value>0 dB</span>
+                            </div>
+                        </div>
+                        <div class="flex flex-col gap-2">
+                            <span class="text-[0.65rem] uppercase tracking-[0.3em] text-zinc-400">Treble</span>
+                            <div class="flex items-center gap-3">
+                                <input type="range" min="-12" max="12" step="1" value="0" class="progress-slider flex-1" data-eq-treble aria-label="Điều chỉnh treble" />
+                                <span class="value-badge" data-eq-treble-value>0 dB</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="mt-8 flex flex-1 flex-col gap-4">
                 <div class="flex items-center justify-between">
                     <h3 class="text-lg font-semibold text-white">Bài hát trong danh sách</h3>
