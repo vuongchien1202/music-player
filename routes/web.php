@@ -2,6 +2,8 @@
 
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', function () {
-    return view('welcome');
-});
+Route::view('/', 'welcome')->name('home');
+
+Route::view('/playlists/create', 'playlists.create')->name('playlists.create');
+
+Route::view('/songs', 'songs.manage')->name('songs.manage');
