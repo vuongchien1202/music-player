@@ -777,6 +777,10 @@ function updateKaraoke(currentTime) {
 }
 
 function updatePlayButton() {
+    if (!elements.playIcon) {
+        return;
+    }
+
     elements.playIcon.innerHTML = state.isPlaying ? '&#10074;&#10074;' : '&#9658;';
 }
 
