@@ -8,6 +8,9 @@ const state = {
     playlists: [],
     currentPlaylistId: null,
     currentSongId: null,
+    playbackMode: 'normal',
+    shuffleQueue: [],
+    playbackHistory: [],
     isPlaying: false,
     editingSong: null,
     karaokeIndex: -1,
@@ -19,11 +22,58 @@ const state = {
         duration: null,
     },
     lyricsDraft: [],
+    equalizer: {
+        bass: 0,
+        treble: 0,
+        preset: 'flat',
+    },
+    audioSettings: {
+        speed: 1,
+        pitch: 0,
+    },
 };
 
 let currentPage = 'home';
 
 const elements = {};
+
+const PLAYBACK_MODE_ORDER = ['normal', 'repeat-all', 'repeat-one', 'shuffle'];
+
+const PLAYBACK_MODE_CONFIG = {
+    normal: {
+        label: 'Phát tuần tự',
+        icon: '▶️',
+    },
+    'repeat-all': {
+        label: 'Lặp playlist',
+        icon: '🔁',
+    },
+    'repeat-one': {
+        label: 'Lặp 1 bài',
+        icon: '🔂',
+    },
+    shuffle: {
+        label: 'Ngẫu nhiên',
+        icon: '🔀',
+    },
+};
+
+const EQUALIZER_PRESETS = {
+    flat: { label: 'Mặc định', bass: 0, treble: 0 },
+    pop: { label: 'Pop', bass: 2, treble: 4 },
+    rock: { label: 'Rock', bass: 5, treble: 2 },
+    jazz: { label: 'Jazz', bass: 3, treble: 3 },
+};
+
+const audioEngine = {
+    context: null,
+    source: null,
+    bassFilter: null,
+    trebleFilter: null,
+    outputGain: null,
+};
+
+const MAX_HISTORY = 50;
 
 function formatTime(seconds) {
     if (!Number.isFinite(seconds) || seconds < 0) {
@@ -72,6 +122,243 @@ function lyricsToText(lyrics = []) {
     return lyrics
         .map((line) => `${formatTime(Math.max(line.time, 0))}|${line.text}`)
         .join('\n');
+}
+
+function shuffleArray(items) {
+    const array = [...items];
+    for (let i = array.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
+
+function ensureAudioEngine() {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+    const audio = elements.playerAudio;
+    if (!audio) {
+        return null;
+    }
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+        return null;
+    }
+
+    if (!audioEngine.context) {
+        audioEngine.context = new AudioContextClass();
+    }
+
+    if (!audioEngine.source) {
+        try {
+            audioEngine.source = audioEngine.context.createMediaElementSource(audio);
+        } catch (error) {
+            console.error('Không thể khởi tạo bộ xử lý âm thanh:', error);
+            return audioEngine.context;
+        }
+        audioEngine.bassFilter = audioEngine.context.createBiquadFilter();
+        audioEngine.bassFilter.type = 'lowshelf';
+        audioEngine.bassFilter.frequency.value = 200;
+
+        audioEngine.trebleFilter = audioEngine.context.createBiquadFilter();
+        audioEngine.trebleFilter.type = 'highshelf';
+        audioEngine.trebleFilter.frequency.value = 4000;
+
+        audioEngine.outputGain = audioEngine.context.createGain();
+
+        audioEngine.source.connect(audioEngine.bassFilter);
+        audioEngine.bassFilter.connect(audioEngine.trebleFilter);
+        audioEngine.trebleFilter.connect(audioEngine.outputGain);
+        audioEngine.outputGain.connect(audioEngine.context.destination);
+    }
+
+    applyEqualizerSettings();
+
+    return audioEngine.context;
+}
+
+function resumeAudioContext() {
+    const context = ensureAudioEngine();
+    if (context && context.state === 'suspended') {
+        context.resume().catch(() => {
+            // Ignore resume errors caused by lack of user gesture.
+        });
+    }
+}
+
+function formatDecibel(value) {
+    const number = Number(value);
+    if (Number.isNaN(number) || !Number.isFinite(number)) {
+        return '0 dB';
+    }
+    const sign = number > 0 ? '+' : '';
+    return `${sign}${number.toFixed(0)} dB`;
+}
+
+function formatPitch(value) {
+    const number = Number(value);
+    if (Number.isNaN(number) || !Number.isFinite(number) || number === 0) {
+        return '0 st';
+    }
+    const sign = number > 0 ? '+' : '';
+    return `${sign}${number.toFixed(0)} st`;
+}
+
+function setPreservesPitch(audio, preserve) {
+    if (!audio) return;
+    if ('preservesPitch' in audio) {
+        audio.preservesPitch = preserve;
+    }
+    if ('mozPreservesPitch' in audio) {
+        audio.mozPreservesPitch = preserve;
+    }
+    if ('webkitPreservesPitch' in audio) {
+        audio.webkitPreservesPitch = preserve;
+    }
+}
+
+function applyTempoSettings() {
+    const audio = elements.playerAudio;
+    if (!audio) return;
+    const speed = Math.min(1.5, Math.max(0.5, Number(state.audioSettings.speed) || 1));
+    const pitchRatio = 2 ** ((Number(state.audioSettings.pitch) || 0) / 12);
+    const playbackRate = Math.min(2.5, Math.max(0.25, speed * pitchRatio));
+    audio.playbackRate = playbackRate;
+    setPreservesPitch(audio, Number(state.audioSettings.pitch) === 0);
+    updateTempoLabels();
+}
+
+function updateTempoLabels() {
+    if (elements.speedControl && Number(elements.speedControl.value) !== Number(state.audioSettings.speed)) {
+        elements.speedControl.value = String(state.audioSettings.speed);
+    }
+    if (elements.speedValue) {
+        elements.speedValue.textContent = `${Number(state.audioSettings.speed).toFixed(2)}x`;
+    }
+    if (elements.pitchControl && Number(elements.pitchControl.value) !== Number(state.audioSettings.pitch)) {
+        elements.pitchControl.value = String(state.audioSettings.pitch);
+    }
+    if (elements.pitchValue) {
+        elements.pitchValue.textContent = formatPitch(state.audioSettings.pitch);
+    }
+}
+
+function applyEqualizerSettings() {
+    if (!audioEngine.bassFilter || !audioEngine.trebleFilter) {
+        ensureAudioEngine();
+    }
+    if (audioEngine.bassFilter) {
+        audioEngine.bassFilter.gain.value = Number(state.equalizer.bass) || 0;
+    }
+    if (audioEngine.trebleFilter) {
+        audioEngine.trebleFilter.gain.value = Number(state.equalizer.treble) || 0;
+    }
+}
+
+function updateEqualizerControls() {
+    if (elements.eqBass) {
+        elements.eqBass.value = String(state.equalizer.bass);
+    }
+    if (elements.eqBassValue) {
+        elements.eqBassValue.textContent = formatDecibel(state.equalizer.bass);
+    }
+    if (elements.eqTreble) {
+        elements.eqTreble.value = String(state.equalizer.treble);
+    }
+    if (elements.eqTrebleValue) {
+        elements.eqTrebleValue.textContent = formatDecibel(state.equalizer.treble);
+    }
+    if (elements.eqPreset) {
+        const option = elements.eqPreset.querySelector(`option[value="${state.equalizer.preset}"]`);
+        elements.eqPreset.value = option ? state.equalizer.preset : 'custom';
+    }
+}
+
+function updatePlaybackModeControl() {
+    const config = PLAYBACK_MODE_CONFIG[state.playbackMode] ?? PLAYBACK_MODE_CONFIG.normal;
+    if (elements.playbackModeIcon) {
+        elements.playbackModeIcon.textContent = config.icon;
+    }
+    if (elements.playbackModeLabel) {
+        elements.playbackModeLabel.textContent = config.label;
+    } else if (elements.playbackModeToggle) {
+        elements.playbackModeToggle.textContent = `${config.icon} ${config.label}`;
+    }
+}
+
+function resetPlaybackState({ resetHistory = true } = {}) {
+    state.shuffleQueue = [];
+    if (resetHistory) {
+        state.playbackHistory = [];
+    }
+}
+
+function rebuildShuffleQueue() {
+    const playlist = getCurrentPlaylist();
+    if (!playlist) {
+        state.shuffleQueue = [];
+        return;
+    }
+    const queue = playlist.songs
+        .map((song) => song.id)
+        .filter((id) => id !== state.currentSongId);
+    state.shuffleQueue = shuffleArray(queue);
+}
+
+function prunePlaybackHistory() {
+    const playlist = getCurrentPlaylist();
+    if (!playlist) {
+        state.playbackHistory = [];
+        state.shuffleQueue = [];
+        return;
+    }
+    const validIds = new Set(playlist.songs.map((song) => song.id));
+    state.playbackHistory = state.playbackHistory.filter((id) => validIds.has(id));
+    state.shuffleQueue = state.shuffleQueue.filter((id) => validIds.has(id) && id !== state.currentSongId);
+}
+
+function pushSongHistory(songId) {
+    if (!songId) return;
+    const last = state.playbackHistory[state.playbackHistory.length - 1];
+    if (last === songId) {
+        return;
+    }
+    state.playbackHistory.push(songId);
+    if (state.playbackHistory.length > MAX_HISTORY) {
+        state.playbackHistory.shift();
+    }
+}
+
+function setPlaybackMode(mode) {
+    if (!PLAYBACK_MODE_ORDER.includes(mode)) {
+        return;
+    }
+    if (state.playbackMode === mode) {
+        return;
+    }
+    state.playbackMode = mode;
+    if (mode === 'shuffle') {
+        rebuildShuffleQueue();
+    } else {
+        state.shuffleQueue = [];
+    }
+    prunePlaybackHistory();
+    updatePlaybackModeControl();
+}
+
+function cyclePlaybackMode() {
+    const currentIndex = PLAYBACK_MODE_ORDER.indexOf(state.playbackMode);
+    const nextIndex = (currentIndex + 1) % PLAYBACK_MODE_ORDER.length;
+    setPlaybackMode(PLAYBACK_MODE_ORDER[nextIndex]);
+}
+
+function restartCurrentSong() {
+    if (!elements.playerAudio) {
+        return;
+    }
+    elements.playerAudio.currentTime = 0;
+    playCurrent();
 }
 
 function normalizeSong(rawSong) {
@@ -141,7 +428,11 @@ function getCurrentSong() {
 
 function setCurrentPlaylist(playlistId, { keepSong = false } = {}) {
     const id = playlistId === null || playlistId === undefined ? null : Number(playlistId);
+    const previousPlaylistId = state.currentPlaylistId;
     state.currentPlaylistId = Number.isNaN(id) ? null : id;
+    if (previousPlaylistId !== state.currentPlaylistId) {
+        resetPlaybackState();
+    }
     const playlist = getCurrentPlaylist();
     if (!playlist) {
         state.currentSongId = null;
@@ -151,6 +442,10 @@ function setCurrentPlaylist(playlistId, { keepSong = false } = {}) {
         return;
     }
     state.currentSongId = playlist.songs[0]?.id ?? null;
+    prunePlaybackHistory();
+    if (state.playbackMode === 'shuffle') {
+        rebuildShuffleQueue();
+    }
 }
 
 function setCurrentSong(songId) {
@@ -165,7 +460,12 @@ function setCurrentSong(songId) {
         return;
     }
     const songExists = playlist.songs.some((song) => song.id === id);
-    state.currentSongId = songExists ? id : playlist.songs[0]?.id ?? null;
+    const newSongId = songExists ? id : playlist.songs[0]?.id ?? null;
+    state.currentSongId = newSongId;
+    if (state.playbackMode === 'shuffle' && newSongId !== null) {
+        state.shuffleQueue = state.shuffleQueue.filter((queuedId) => queuedId !== newSongId);
+    }
+    prunePlaybackHistory();
 }
 
 function setLibrary(playlists = []) {
@@ -177,6 +477,10 @@ function setLibrary(playlists = []) {
     const playlist = getCurrentPlaylist();
     if (!playlist || !playlist.songs.some((song) => song.id === state.currentSongId)) {
         state.currentSongId = playlist?.songs[0]?.id ?? null;
+    }
+    prunePlaybackHistory();
+    if (state.playbackMode === 'shuffle') {
+        rebuildShuffleQueue();
     }
     updatePlaylistSelect();
     render();
@@ -336,7 +640,13 @@ function renderSongs() {
         title.className = 'text-left text-sm font-semibold text-white hover:underline';
         title.textContent = song.title;
         title.addEventListener('click', () => {
+            if (state.currentSongId && state.currentSongId !== song.id) {
+                pushSongHistory(state.currentSongId);
+            }
             setCurrentSong(song.id);
+            if (state.playbackMode === 'shuffle') {
+                rebuildShuffleQueue();
+            }
             renderPlayer();
             renderKaraoke();
             if (currentPage === 'home') {
@@ -701,12 +1011,17 @@ function renderPlayer() {
         audio.src = song.audio;
         audio.dataset.songId = String(song.id);
         audio.load();
+        applyTempoSettings();
+        applyEqualizerSettings();
         if (state.isPlaying) {
             audio.play().catch(() => {
                 state.isPlaying = false;
                 updatePlayButton();
             });
         }
+    } else {
+        applyTempoSettings();
+        applyEqualizerSettings();
     }
 
     elements.playerTitle.textContent = song.title;
@@ -714,6 +1029,7 @@ function renderPlayer() {
     elements.playerAlbum.textContent = song.album ?? '';
     elements.playerCover.src = song.cover || DEFAULT_COVER;
     elements.totalDuration.textContent = formatTime(song.duration ?? audio.duration ?? 0);
+    updatePlaybackModeControl();
 }
 
 function renderKaraoke() {
@@ -795,6 +1111,10 @@ function playCurrent() {
         audio.dataset.songId = String(song.id);
     }
 
+    resumeAudioContext();
+    applyTempoSettings();
+    applyEqualizerSettings();
+
     audio.play()
         .then(() => {
             state.isPlaying = true;
@@ -821,17 +1141,75 @@ function playPause() {
     }
 }
 
-function playNext() {
+function playNext({ auto = false } = {}) {
     const playlist = getCurrentPlaylist();
     if (!playlist || playlist.songs.length === 0) {
-        return;
+        return false;
     }
+
+    if (state.playbackMode === 'repeat-one') {
+        restartCurrentSong();
+        return true;
+    }
+
+    if (state.playbackMode === 'shuffle') {
+        if (playlist.songs.length === 1) {
+            restartCurrentSong();
+            return true;
+        }
+        if (state.shuffleQueue.length === 0) {
+            rebuildShuffleQueue();
+        }
+        let nextId = state.shuffleQueue.shift();
+        if (!nextId || nextId === state.currentSongId) {
+            rebuildShuffleQueue();
+            nextId = state.shuffleQueue.shift();
+        }
+        if (!nextId) {
+            restartCurrentSong();
+            return true;
+        }
+        if (state.currentSongId) {
+            pushSongHistory(state.currentSongId);
+        }
+        state.currentSongId = nextId;
+        prunePlaybackHistory();
+        renderPlayer();
+        renderKaraoke();
+        playCurrent();
+        return true;
+    }
+
     const index = playlist.songs.findIndex((song) => song.id === state.currentSongId);
-    const nextIndex = (index + 1) % playlist.songs.length;
-    state.currentSongId = playlist.songs[nextIndex].id;
+    let nextIndex = index + 1;
+    if (index === -1) {
+        nextIndex = 0;
+    }
+    if (nextIndex >= playlist.songs.length) {
+        if (state.playbackMode === 'repeat-all') {
+            nextIndex = 0;
+        } else {
+            if (auto) {
+                state.isPlaying = false;
+                updatePlayButton();
+            }
+            return false;
+        }
+    }
+
+    const nextSong = playlist.songs[nextIndex];
+    if (!nextSong) {
+        return false;
+    }
+    if (state.currentSongId) {
+        pushSongHistory(state.currentSongId);
+    }
+    state.currentSongId = nextSong.id;
+    prunePlaybackHistory();
     renderPlayer();
     renderKaraoke();
     playCurrent();
+    return true;
 }
 
 function playPrevious() {
@@ -839,9 +1217,59 @@ function playPrevious() {
     if (!playlist || playlist.songs.length === 0) {
         return;
     }
+
+    if (state.playbackMode === 'repeat-one') {
+        restartCurrentSong();
+        return;
+    }
+
+    if (state.playbackMode === 'shuffle') {
+        if (state.currentSongId) {
+            state.shuffleQueue = [
+                state.currentSongId,
+                ...state.shuffleQueue.filter((id) => id !== state.currentSongId),
+            ];
+        }
+        const previousId = state.playbackHistory.pop();
+        if (previousId && playlist.songs.some((song) => song.id === previousId)) {
+            state.currentSongId = previousId;
+            prunePlaybackHistory();
+            renderPlayer();
+            renderKaraoke();
+            playCurrent();
+            return;
+        }
+        if (playlist.songs.length === 1) {
+            restartCurrentSong();
+            return;
+        }
+        if (state.shuffleQueue.length === 0) {
+            rebuildShuffleQueue();
+        }
+        const fallback = state.shuffleQueue.shift();
+        if (fallback) {
+            state.currentSongId = fallback;
+            prunePlaybackHistory();
+            renderPlayer();
+            renderKaraoke();
+            playCurrent();
+        }
+        return;
+    }
+
     const index = playlist.songs.findIndex((song) => song.id === state.currentSongId);
-    const prevIndex = (index - 1 + playlist.songs.length) % playlist.songs.length;
-    state.currentSongId = playlist.songs[prevIndex].id;
+    let prevIndex = index - 1;
+    if (index === -1) {
+        prevIndex = 0;
+    } else if (prevIndex < 0) {
+        prevIndex = playlist.songs.length - 1;
+    }
+    const prevSong = playlist.songs[prevIndex];
+    if (!prevSong) {
+        return;
+    }
+    state.currentSongId = prevSong.id;
+    prunePlaybackHistory();
     renderPlayer();
     renderKaraoke();
     playCurrent();
@@ -921,6 +1349,11 @@ async function addPlaylist({ name, accent }) {
         state.playlists.push(playlist);
         state.currentPlaylistId = playlist.id;
         state.currentSongId = playlist.songs[0]?.id ?? null;
+        resetPlaybackState();
+        prunePlaybackHistory();
+        if (state.playbackMode === 'shuffle') {
+            rebuildShuffleQueue();
+        }
         updatePlaylistSelect();
         render();
     } catch (error) {
@@ -1066,6 +1499,10 @@ async function upsertSong({ playlistId, song }) {
             }
             state.currentPlaylistId = playlistId;
             state.currentSongId = updatedSong.id;
+            prunePlaybackHistory();
+            if (state.playbackMode === 'shuffle') {
+                rebuildShuffleQueue();
+            }
         } else {
             response = await apiRequest('/songs', {
                 method: 'POST',
@@ -1077,6 +1514,10 @@ async function upsertSong({ playlistId, song }) {
                 playlist.songs.push(createdSong);
                 state.currentPlaylistId = playlist.id;
                 state.currentSongId = createdSong.id;
+            }
+            prunePlaybackHistory();
+            if (state.playbackMode === 'shuffle') {
+                rebuildShuffleQueue();
             }
         }
 
@@ -1106,6 +1547,12 @@ async function removeSong(playlistId, songId) {
         }
         if (state.editingSong && state.editingSong.songId === songId) {
             resetSongForm();
+        }
+        state.playbackHistory = state.playbackHistory.filter((id) => id !== songId);
+        state.shuffleQueue = state.shuffleQueue.filter((id) => id !== songId);
+        prunePlaybackHistory();
+        if (state.playbackMode === 'shuffle') {
+            rebuildShuffleQueue();
         }
         render();
     } catch (error) {
@@ -1206,6 +1653,18 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.playerArtist = document.querySelector('[data-player-artist]');
     elements.playerAlbum = document.querySelector('[data-player-album]');
     elements.playerCover = document.querySelector('[data-player-cover]');
+    elements.playbackModeToggle = document.querySelector('[data-playback-mode]');
+    elements.playbackModeIcon = document.querySelector('[data-playback-mode-icon]');
+    elements.playbackModeLabel = document.querySelector('[data-playback-mode-label]');
+    elements.speedControl = document.querySelector('[data-speed-control]');
+    elements.speedValue = document.querySelector('[data-speed-value]');
+    elements.pitchControl = document.querySelector('[data-pitch-control]');
+    elements.pitchValue = document.querySelector('[data-pitch-value]');
+    elements.eqPreset = document.querySelector('[data-eq-preset]');
+    elements.eqBass = document.querySelector('[data-eq-bass]');
+    elements.eqTreble = document.querySelector('[data-eq-treble]');
+    elements.eqBassValue = document.querySelector('[data-eq-bass-value]');
+    elements.eqTrebleValue = document.querySelector('[data-eq-treble-value]');
     elements.playlistList = document.querySelector('[data-playlist-list]');
     elements.songList = document.querySelector('[data-song-list]');
     elements.songCount = document.querySelector('[data-song-count]');
@@ -1250,10 +1709,69 @@ document.addEventListener('DOMContentLoaded', () => {
     updatePlaylistSelect();
     render();
     updatePlayButton();
+    updatePlaybackModeControl();
+    updateTempoLabels();
+    updateEqualizerControls();
+    applyTempoSettings();
+    applyEqualizerSettings();
 
     elements.playButton?.addEventListener('click', playPause);
-    elements.prevButton?.addEventListener('click', playPrevious);
-    elements.nextButton?.addEventListener('click', playNext);
+    elements.prevButton?.addEventListener('click', () => {
+        playPrevious();
+    });
+    elements.nextButton?.addEventListener('click', () => {
+        playNext();
+    });
+
+    elements.playbackModeToggle?.addEventListener('click', () => {
+        cyclePlaybackMode();
+    });
+
+    elements.speedControl?.addEventListener('input', (event) => {
+        const value = Number(event.target.value);
+        if (!Number.isFinite(value)) {
+            return;
+        }
+        state.audioSettings.speed = value;
+        applyTempoSettings();
+    });
+
+    elements.pitchControl?.addEventListener('input', (event) => {
+        const value = Number(event.target.value);
+        if (!Number.isFinite(value)) {
+            return;
+        }
+        state.audioSettings.pitch = value;
+        applyTempoSettings();
+    });
+
+    elements.eqPreset?.addEventListener('change', (event) => {
+        const { value } = event.target;
+        if (EQUALIZER_PRESETS[value]) {
+            state.equalizer.bass = EQUALIZER_PRESETS[value].bass;
+            state.equalizer.treble = EQUALIZER_PRESETS[value].treble;
+            state.equalizer.preset = value;
+            updateEqualizerControls();
+            applyEqualizerSettings();
+        } else {
+            state.equalizer.preset = 'custom';
+            updateEqualizerControls();
+        }
+    });
+
+    elements.eqBass?.addEventListener('input', (event) => {
+        state.equalizer.bass = Number(event.target.value);
+        state.equalizer.preset = 'custom';
+        updateEqualizerControls();
+        applyEqualizerSettings();
+    });
+
+    elements.eqTreble?.addEventListener('input', (event) => {
+        state.equalizer.treble = Number(event.target.value);
+        state.equalizer.preset = 'custom';
+        updateEqualizerControls();
+        applyEqualizerSettings();
+    });
 
     elements.playerAudio?.addEventListener('timeupdate', () => {
         const { currentTime, duration } = elements.playerAudio;
@@ -1267,12 +1785,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     elements.playerAudio?.addEventListener('ended', () => {
-        playNext();
+        const advanced = playNext({ auto: true });
+        if (!advanced && elements.playerAudio) {
+            elements.playerAudio.currentTime = 0;
+        }
     });
 
     elements.playerAudio?.addEventListener('play', () => {
         state.isPlaying = true;
         updatePlayButton();
+        resumeAudioContext();
+        applyTempoSettings();
+        applyEqualizerSettings();
     });
 
     elements.playerAudio?.addEventListener('pause', () => {

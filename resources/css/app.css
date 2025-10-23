@@ -185,6 +185,58 @@ body {
     color: #fff;
 }
 
+.mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 9999px;
+    padding: 0.5rem 1.15rem;
+    background: rgba(244, 63, 94, 0.2);
+    color: #fdf2f8;
+    text-transform: uppercase;
+    letter-spacing: 0.25em;
+    font-size: 0.65rem;
+    transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.mode-toggle:hover {
+    background: rgba(244, 63, 94, 0.35);
+    transform: translateY(-1px);
+    box-shadow: 0 12px 24px rgba(244, 63, 94, 0.32);
+}
+
+.value-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 3rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    background: rgba(244, 63, 94, 0.18);
+    color: #fce7f3;
+    font-size: 0.65rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+}
+
+.select-field {
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    padding: 0.55rem 1.1rem;
+    color: #f4f4f5;
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    appearance: none;
+}
+
+.select-field:focus {
+    outline: none;
+    border-color: rgba(244, 63, 94, 0.6);
+    box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.12);
+}
+
 .source-pill {
     display: inline-flex;
     align-items: center;
