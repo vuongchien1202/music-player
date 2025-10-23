@@ -7,6 +7,11 @@
         <link rel="preconnect" href="https://fonts.bunny.net">
         <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
         @vite(['resources/css/app.css', 'resources/js/app.js'])
+        <script>
+            window.appConfig = Object.assign({}, window.appConfig, {
+                mediaProxy: @json(route('audio.proxy', [], false)),
+            });
+        </script>
     </head>
     <body class="min-h-screen bg-gradient-to-br from-zinc-900 via-black to-zinc-950 text-zinc-100" data-page="@yield('page', 'home')">
         <div class="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.08),_rgba(0,0,0,0))]">

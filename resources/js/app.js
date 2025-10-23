@@ -41,6 +41,43 @@ let currentPage = 'home';
 
 const elements = {};
 
+const appConfig = typeof window !== 'undefined' && window.appConfig ? window.appConfig : {};
+
+function buildPlayableAudioUrl(url) {
+    if (typeof url !== 'string') {
+        return '';
+    }
+
+    const trimmed = url.trim();
+    if (!trimmed) {
+        return '';
+    }
+
+    if (trimmed.startsWith('blob:') || trimmed.startsWith('data:')) {
+        return trimmed;
+    }
+
+    if (typeof window === 'undefined') {
+        return trimmed;
+    }
+
+    try {
+        const parsed = new URL(trimmed, window.location.href);
+        if (parsed.origin === window.location.origin) {
+            return trimmed;
+        }
+
+        if (!appConfig?.mediaProxy) {
+            return trimmed;
+        }
+
+        return `${appConfig.mediaProxy}?url=${encodeURIComponent(parsed.href)}`;
+    } catch (error) {
+        console.warn('Không thể phân tích URL nguồn nhạc:', error);
+        return trimmed;
+    }
+}
+
 const PLAYBACK_MODE_ORDER = ['normal', 'repeat-all', 'repeat-one', 'shuffle'];
 
 const PLAYBACK_MODE_CONFIG = {
@@ -521,6 +558,12 @@ function normalizeSong(rawSong) {
               .sort((a, b) => a.time - b.time)
         : [];
 
+    const originalAudio = typeof rawSong.audio_original === 'string' && rawSong.audio_original
+        ? rawSong.audio_original
+        : rawSong.audio ?? rawSong.audio_url ?? '';
+    const providedAudio = rawSong.audio ?? rawSong.audio_url ?? '';
+    const playableAudio = buildPlayableAudioUrl(providedAudio || originalAudio);
+
     return {
         id: Number.isNaN(songId) ? rawSong.id : songId,
         playlistId: Number.isNaN(playlistId) ? null : playlistId,
@@ -528,7 +571,8 @@ function normalizeSong(rawSong) {
         artist: rawSong.artist ?? '',
         album: rawSong.album ?? '',
         cover: rawSong.cover ?? rawSong.cover_url ?? '',
-        audio: rawSong.audio ?? rawSong.audio_url ?? '',
+        audio: playableAudio || '',
+        audioOriginal: originalAudio || '',
         duration: Number.isFinite(rawSong.duration) ? Number(rawSong.duration) : null,
         lyrics,
     };
@@ -894,6 +938,9 @@ function resetAudioPreview() {
     if (!elements.editorAudio) return;
     elements.editorAudio.pause();
     elements.editorAudio.removeAttribute('src');
+    if (elements.editorAudio.dataset) {
+        delete elements.editorAudio.dataset.originalSrc;
+    }
     elements.editorAudio.load();
     clearObjectUrl(state.form.audioObjectUrl);
     state.form.audioObjectUrl = null;
@@ -908,7 +955,11 @@ function setEditorAudioSource({ type, value }) {
         state.form.audioObjectUrl = URL.createObjectURL(value);
         elements.editorAudio.src = state.form.audioObjectUrl;
     } else if (type === 'url' && typeof value === 'string' && value.trim()) {
-        elements.editorAudio.src = value.trim();
+        const playableUrl = buildPlayableAudioUrl(value);
+        elements.editorAudio.src = playableUrl;
+        if (elements.editorAudio.dataset) {
+            elements.editorAudio.dataset.originalSrc = value.trim();
+        }
     } else {
         return;
     }
@@ -1535,10 +1586,11 @@ function beginEditSong(song, playlistId) {
     }
 
     setAudioSource('url');
+    const audioUrlValue = song.audioOriginal ?? song.audio ?? '';
     if (elements.audioUrl) {
-        elements.audioUrl.value = song.audio ?? '';
+        elements.audioUrl.value = audioUrlValue;
     }
-    setEditorAudioSource({ type: 'url', value: song.audio ?? '' });
+    setEditorAudioSource({ type: 'url', value: audioUrlValue });
     state.form.duration = Number.isFinite(song.duration) ? Number(song.duration) : null;
 
     if (elements.playlistTarget) {
