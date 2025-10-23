@@ -31,6 +31,10 @@ const state = {
         speed: 1,
         pitch: 0,
     },
+    audioFeatures: {
+        equalizerAvailable: true,
+        unavailableReason: '',
+    },
 };
 
 let currentPage = 'home';
@@ -71,9 +75,87 @@ const audioEngine = {
     bassFilter: null,
     trebleFilter: null,
     outputGain: null,
+    blockedReason: null,
+    failedSrc: null,
 };
 
 const MAX_HISTORY = 50;
+
+function isCrossOriginSource(audio) {
+    if (!audio) {
+        return false;
+    }
+    const src = audio.currentSrc || audio.src;
+    if (!src) {
+        return false;
+    }
+    try {
+        const url = new URL(src, window.location.href);
+        return url.origin !== window.location.origin;
+    } catch (error) {
+        console.warn('Không thể xác định nguồn âm thanh:', error);
+        return false;
+    }
+}
+
+function teardownAudioEngine(reason = null) {
+    try {
+        audioEngine.source?.disconnect();
+    } catch (error) {
+        console.warn('Không thể ngắt kết nối nguồn âm thanh:', error);
+    }
+    try {
+        audioEngine.bassFilter?.disconnect();
+    } catch (error) {
+        console.warn('Không thể ngắt kết nối bộ lọc bass:', error);
+    }
+    try {
+        audioEngine.trebleFilter?.disconnect();
+    } catch (error) {
+        console.warn('Không thể ngắt kết nối bộ lọc treble:', error);
+    }
+    try {
+        audioEngine.outputGain?.disconnect();
+    } catch (error) {
+        console.warn('Không thể ngắt kết nối gain đầu ra:', error);
+    }
+
+    audioEngine.source = null;
+    audioEngine.bassFilter = null;
+    audioEngine.trebleFilter = null;
+    audioEngine.outputGain = null;
+
+    if (reason) {
+        audioEngine.blockedReason = reason;
+        audioEngine.failedSrc = elements.playerAudio?.currentSrc || elements.playerAudio?.src || null;
+        if (audioEngine.context) {
+            audioEngine.context.close?.().catch(() => {});
+            audioEngine.context = null;
+        }
+    } else {
+        audioEngine.blockedReason = null;
+        audioEngine.failedSrc = null;
+    }
+}
+
+function setEqualizerAvailability(available, reason = '') {
+    if (!state.audioFeatures) {
+        state.audioFeatures = {
+            equalizerAvailable: available,
+            unavailableReason: reason,
+        };
+    }
+
+    const changed =
+        state.audioFeatures.equalizerAvailable !== available || state.audioFeatures.unavailableReason !== reason;
+
+    state.audioFeatures.equalizerAvailable = available;
+    state.audioFeatures.unavailableReason = reason;
+
+    if (changed) {
+        updateEqualizerControls();
+    }
+}
 
 function formatTime(seconds) {
     if (!Number.isFinite(seconds) || seconds < 0) {
@@ -137,26 +219,67 @@ function ensureAudioEngine() {
     if (typeof window === 'undefined') {
         return null;
     }
+
     const audio = elements.playerAudio;
     if (!audio) {
         return null;
     }
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) {
+
+    const crossOrigin = isCrossOriginSource(audio);
+    if (crossOrigin) {
+        if (audioEngine.blockedReason !== 'cross-origin') {
+            teardownAudioEngine('cross-origin');
+        }
+        setEqualizerAvailability(false, 'Bộ cân bằng không hoạt động với nguồn nhạc ngoài miền.');
         return null;
     }
 
+    if (audioEngine.blockedReason === 'cross-origin') {
+        teardownAudioEngine();
+    }
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+        if (audioEngine.blockedReason !== 'unsupported') {
+            setEqualizerAvailability(false, 'Trình duyệt của bạn không hỗ trợ các hiệu ứng âm thanh nâng cao.');
+            audioEngine.blockedReason = 'unsupported';
+        }
+        return null;
+    }
+
+    if (audioEngine.blockedReason === 'unsupported' && audioEngine.failedSrc) {
+        const currentSrc = audio.currentSrc || audio.src || '';
+        if (currentSrc === audioEngine.failedSrc) {
+            return null;
+        }
+        teardownAudioEngine();
+    }
+
     if (!audioEngine.context) {
-        audioEngine.context = new AudioContextClass();
+        try {
+            audioEngine.context = new AudioContextClass();
+        } catch (error) {
+            console.error('Không thể khởi tạo AudioContext:', error);
+            setEqualizerAvailability(false, 'Không thể kích hoạt bộ cân bằng.');
+            audioEngine.blockedReason = 'unsupported';
+            audioEngine.failedSrc = audio.currentSrc || audio.src || null;
+            return null;
+        }
     }
 
     if (!audioEngine.source) {
         try {
+            if (!audio.crossOrigin) {
+                audio.crossOrigin = 'anonymous';
+            }
             audioEngine.source = audioEngine.context.createMediaElementSource(audio);
         } catch (error) {
             console.error('Không thể khởi tạo bộ xử lý âm thanh:', error);
+            teardownAudioEngine('unsupported');
+            setEqualizerAvailability(false, 'Không thể kích hoạt bộ cân bằng cho nguồn nhạc này.');
             return audioEngine.context;
         }
+
         audioEngine.bassFilter = audioEngine.context.createBiquadFilter();
         audioEngine.bassFilter.type = 'lowshelf';
         audioEngine.bassFilter.frequency.value = 200;
@@ -173,7 +296,9 @@ function ensureAudioEngine() {
         audioEngine.outputGain.connect(audioEngine.context.destination);
     }
 
-    applyEqualizerSettings();
+    if (!state.audioFeatures?.equalizerAvailable || state.audioFeatures?.unavailableReason) {
+        setEqualizerAvailability(true);
+    }
 
     return audioEngine.context;
 }
@@ -245,26 +370,31 @@ function updateTempoLabels() {
 }
 
 function applyEqualizerSettings() {
+    const context = ensureAudioEngine();
+    if (state.audioFeatures && state.audioFeatures.equalizerAvailable === false) {
+        return context;
+    }
     if (!audioEngine.bassFilter || !audioEngine.trebleFilter) {
-        ensureAudioEngine();
+        return context;
     }
-    if (audioEngine.bassFilter) {
-        audioEngine.bassFilter.gain.value = Number(state.equalizer.bass) || 0;
-    }
-    if (audioEngine.trebleFilter) {
-        audioEngine.trebleFilter.gain.value = Number(state.equalizer.treble) || 0;
-    }
+    audioEngine.bassFilter.gain.value = Number(state.equalizer.bass) || 0;
+    audioEngine.trebleFilter.gain.value = Number(state.equalizer.treble) || 0;
+    return context;
 }
 
 function updateEqualizerControls() {
+    const disabled = state.audioFeatures ? !state.audioFeatures.equalizerAvailable : false;
+
     if (elements.eqBass) {
         elements.eqBass.value = String(state.equalizer.bass);
+        elements.eqBass.disabled = disabled;
     }
     if (elements.eqBassValue) {
         elements.eqBassValue.textContent = formatDecibel(state.equalizer.bass);
     }
     if (elements.eqTreble) {
         elements.eqTreble.value = String(state.equalizer.treble);
+        elements.eqTreble.disabled = disabled;
     }
     if (elements.eqTrebleValue) {
         elements.eqTrebleValue.textContent = formatDecibel(state.equalizer.treble);
@@ -272,6 +402,18 @@ function updateEqualizerControls() {
     if (elements.eqPreset) {
         const option = elements.eqPreset.querySelector(`option[value="${state.equalizer.preset}"]`);
         elements.eqPreset.value = option ? state.equalizer.preset : 'custom';
+        elements.eqPreset.disabled = disabled;
+        elements.eqPreset.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+    }
+    if (elements.eqStatus) {
+        if (disabled) {
+            elements.eqStatus.textContent =
+                state.audioFeatures?.unavailableReason || 'Bộ cân bằng tạm thời không sử dụng được.';
+            elements.eqStatus.classList.remove('hidden');
+        } else {
+            elements.eqStatus.textContent = '';
+            elements.eqStatus.classList.add('hidden');
+        }
     }
 }
 
@@ -1111,6 +1253,11 @@ function playCurrent() {
         audio.dataset.songId = String(song.id);
     }
 
+    audio.muted = false;
+    if (typeof audio.volume === 'number') {
+        audio.volume = Math.min(1, Math.max(0, audio.volume || 1));
+    }
+
     resumeAudioContext();
     applyTempoSettings();
     applyEqualizerSettings();
@@ -1665,6 +1812,7 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.eqTreble = document.querySelector('[data-eq-treble]');
     elements.eqBassValue = document.querySelector('[data-eq-bass-value]');
     elements.eqTrebleValue = document.querySelector('[data-eq-treble-value]');
+    elements.eqStatus = document.querySelector('[data-eq-status]');
     elements.playlistList = document.querySelector('[data-playlist-list]');
     elements.songList = document.querySelector('[data-song-list]');
     elements.songCount = document.querySelector('[data-song-count]');

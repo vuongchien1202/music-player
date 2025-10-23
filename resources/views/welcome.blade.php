@@ -47,7 +47,7 @@
                 <input type="range" min="0" max="100" value="0" data-progress class="progress-slider" aria-label="Tiến độ bài hát" />
             </div>
 
-            <audio id="player-audio" class="hidden" preload="metadata"></audio>
+            <audio id="player-audio" class="hidden" preload="metadata" crossorigin="anonymous"></audio>
 
             <div class="mt-6 grid gap-4 lg:grid-cols-2">
                 <div class="flex flex-col gap-4 rounded-2xl border border-white/5 bg-white/5 p-4">
@@ -83,6 +83,7 @@
                         <div>
                             <p class="text-[0.65rem] uppercase tracking-[0.3em] text-rose-300">Equalizer</p>
                             <p class="text-sm text-zinc-200">Tuỳ chỉnh âm sắc</p>
+                            <p class="mt-1 text-xs text-rose-300 hidden" data-eq-status role="status" aria-live="polite"></p>
                         </div>
                         <select data-eq-preset class="select-field">
                             <option value="flat">Mặc định</option>
