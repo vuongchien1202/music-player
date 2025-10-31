@@ -40,6 +40,8 @@ class SongController extends Controller
 
     protected function validateSong(Request $request, ?int $songId = null): array
     {
+        $this->prepareSongInputs($request);
+
         $validated = $request->validate([
             'playlist_id' => ['required', 'integer', 'exists:playlists,id'],
             'title' => ['required', 'string', 'max:255'],
@@ -95,5 +97,22 @@ class SongController extends Controller
             'duration' => $validated['duration'] ?? null,
             'lyrics' => $lyrics ?: null,
         ];
+    }
+
+    protected function prepareSongInputs(Request $request): void
+    {
+        $coverUrl = $request->input('cover_url');
+        if (!$request->filled('cover') && is_string($coverUrl) && trim($coverUrl) !== '') {
+            $request->merge([
+                'cover' => trim($coverUrl),
+            ]);
+        }
+
+        $audioUrl = $request->input('audio_url');
+        if (!$request->filled('audio') && is_string($audioUrl) && trim($audioUrl) !== '') {
+            $request->merge([
+                'audio' => trim($audioUrl),
+            ]);
+        }
     }
 }
