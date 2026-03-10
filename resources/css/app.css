@@ -4,6 +4,9 @@
 
 :root {
     color-scheme: dark;
+    --active-gradient: linear-gradient(135deg, rgba(244, 63, 94, 0.9), rgba(249, 115, 22, 0.9));
+    --active-shadow: 0 20px 35px rgba(244, 63, 94, 0.35);
+    --bg-hover: rgba(255, 255, 255, 0.12);
 }
 
 body {
@@ -28,9 +31,9 @@ body {
 }
 
 .nav-pill--active {
-    background: linear-gradient(135deg, rgba(244, 63, 94, 0.9), rgba(249, 115, 22, 0.9));
+    background: var(--active-gradient);
     color: #fff;
-    box-shadow: 0 20px 35px rgba(244, 63, 94, 0.35);
+    box-shadow: var(--active-shadow);
 }
 
 .glass-panel {
@@ -99,7 +102,7 @@ body {
     appearance: none;
     height: 0.5rem;
     border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--bg-hover);
     cursor: pointer;
 }
 
@@ -136,13 +139,13 @@ body {
 }
 
 .playlist-item:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--bg-hover);
     color: #f4f4f5;
     transform: translateX(2px);
 }
 
 .playlist-item--active {
-    background: linear-gradient(135deg, rgba(244, 63, 94, 0.9), rgba(249, 115, 22, 0.9));
+    background: var(--active-gradient);
     color: #fff;
     box-shadow: 0 20px 35px rgba(244, 63, 94, 0.45);
 }
@@ -159,7 +162,7 @@ body {
 }
 
 .song-tile:hover {
-    background: rgba(255, 255, 255, 0.12);
+    background: var(--bg-hover);
     transform: translateY(-2px);
 }
 

@@ -182,60 +182,40 @@ function setLibrary(playlists = []) {
     render();
 }
 
-function updatePlaylistSelect() {
-    if (elements.playlistSelect) {
-        elements.playlistSelect.innerHTML = '';
-        if (state.playlists.length === 0) {
+function populatePlaylistSelect(selectEl, submitEl) {
+    if (!selectEl) return;
+    selectEl.innerHTML = '';
+    if (state.playlists.length === 0) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'Chưa có danh sách phát';
+        option.disabled = true;
+        option.selected = true;
+        selectEl.appendChild(option);
+        selectEl.disabled = true;
+        if (submitEl) {
+            submitEl.disabled = true;
+        }
+    } else {
+        state.playlists.forEach((playlist) => {
             const option = document.createElement('option');
-            option.value = '';
-            option.textContent = 'Chưa có danh sách phát';
-            option.disabled = true;
-            option.selected = true;
-            elements.playlistSelect.appendChild(option);
-            elements.playlistSelect.disabled = true;
-        } else {
-            state.playlists.forEach((playlist) => {
-                const option = document.createElement('option');
-                option.value = String(playlist.id);
-                option.textContent = playlist.name;
-                elements.playlistSelect.appendChild(option);
-            });
-            elements.playlistSelect.disabled = false;
-            if (state.currentPlaylistId !== null) {
-                elements.playlistSelect.value = String(state.currentPlaylistId);
-            }
+            option.value = String(playlist.id);
+            option.textContent = playlist.name;
+            selectEl.appendChild(option);
+        });
+        selectEl.disabled = false;
+        if (state.currentPlaylistId !== null) {
+            selectEl.value = String(state.currentPlaylistId);
+        }
+        if (submitEl) {
+            submitEl.disabled = false;
         }
     }
+}
 
-    if (elements.playlistTarget) {
-        elements.playlistTarget.innerHTML = '';
-        if (state.playlists.length === 0) {
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = 'Chưa có danh sách phát';
-            option.disabled = true;
-            option.selected = true;
-            elements.playlistTarget.appendChild(option);
-            elements.playlistTarget.disabled = true;
-            if (elements.songSubmit) {
-                elements.songSubmit.disabled = true;
-            }
-        } else {
-            state.playlists.forEach((playlist) => {
-                const option = document.createElement('option');
-                option.value = String(playlist.id);
-                option.textContent = playlist.name;
-                elements.playlistTarget.appendChild(option);
-            });
-            elements.playlistTarget.disabled = false;
-            if (state.currentPlaylistId !== null) {
-                elements.playlistTarget.value = String(state.currentPlaylistId);
-            }
-            if (elements.songSubmit) {
-                elements.songSubmit.disabled = false;
-            }
-        }
-    }
+function updatePlaylistSelect() {
+    populatePlaylistSelect(elements.playlistSelect);
+    populatePlaylistSelect(elements.playlistTarget, elements.songSubmit);
 }
 
 function renderPlaylists() {
@@ -410,15 +390,19 @@ function updateCoverPreviewFromInputs() {
     }
 }
 
-function applyCoverSourceVisibility() {
-    if (!elements.coverUrl || !elements.coverFile) return;
-    if (state.form.coverSource === 'upload') {
-        elements.coverUrl.classList.add('hidden');
-        elements.coverFile.classList.remove('hidden');
+function applySourceVisibility(source, urlEl, fileEl) {
+    if (!urlEl || !fileEl) return;
+    if (source === 'upload') {
+        urlEl.classList.add('hidden');
+        fileEl.classList.remove('hidden');
     } else {
-        elements.coverFile.classList.add('hidden');
-        elements.coverUrl.classList.remove('hidden');
+        fileEl.classList.add('hidden');
+        urlEl.classList.remove('hidden');
     }
+}
+
+function applyCoverSourceVisibility() {
+    applySourceVisibility(state.form.coverSource, elements.coverUrl, elements.coverFile);
 }
 
 function setCoverSource(source) {
@@ -479,14 +463,7 @@ function updateAudioPreviewFromInputs() {
 }
 
 function applyAudioSourceVisibility() {
-    if (!elements.audioUrl || !elements.audioFile) return;
-    if (state.form.audioSource === 'upload') {
-        elements.audioUrl.classList.add('hidden');
-        elements.audioFile.classList.remove('hidden');
-    } else {
-        elements.audioFile.classList.add('hidden');
-        elements.audioUrl.classList.remove('hidden');
-    }
+    applySourceVisibility(state.form.audioSource, elements.audioUrl, elements.audioFile);
 }
 
 function setAudioSource(source) {
@@ -821,30 +798,25 @@ function playPause() {
     }
 }
 
-function playNext() {
+function navigatePlaylist(direction) {
     const playlist = getCurrentPlaylist();
     if (!playlist || playlist.songs.length === 0) {
         return;
     }
     const index = playlist.songs.findIndex((song) => song.id === state.currentSongId);
-    const nextIndex = (index + 1) % playlist.songs.length;
+    const nextIndex = (index + direction + playlist.songs.length) % playlist.songs.length;
     state.currentSongId = playlist.songs[nextIndex].id;
     renderPlayer();
     renderKaraoke();
     playCurrent();
 }
 
+function playNext() {
+    navigatePlaylist(1);
+}
+
 function playPrevious() {
-    const playlist = getCurrentPlaylist();
-    if (!playlist || playlist.songs.length === 0) {
-        return;
-    }
-    const index = playlist.songs.findIndex((song) => song.id === state.currentSongId);
-    const prevIndex = (index - 1 + playlist.songs.length) % playlist.songs.length;
-    state.currentSongId = playlist.songs[prevIndex].id;
-    renderPlayer();
-    renderKaraoke();
-    playCurrent();
+    navigatePlaylist(-1);
 }
 
 async function apiRequest(path, { method = 'GET', body, headers = {} } = {}) {
